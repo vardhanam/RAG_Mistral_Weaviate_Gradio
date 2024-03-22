@@ -24,6 +24,8 @@ from operator import itemgetter
 
 import gradio as gr
 
+import weaviate
+
 
 
 def load_llm():
@@ -59,9 +61,8 @@ def load_llm():
         device_map = 'auto',
     )
 
-    llm = HuggingFacePipeline(pipeline= text_generation_pipeline)
 
-    return llm
+    return text_generation_pipeline
 
 def embeddings_model():
     embeddings = HuggingFaceEmbeddings(
@@ -80,7 +81,7 @@ def initialize_vectorstore():
 
     return vectorstore
 
-def textsplitter():
+def text_splitter():
     # Simulate some document processing delay
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -169,10 +170,10 @@ def add_pdfs_to_vectorstore(files):
 
     return f"Added {saved_files_count} PDF file(s) to vectorstore/"
 
-def conversational_memory():
-    return ConversationBufferMemory(
-        return_messages=True, output_key="answer", input_key="question"
-    )
+def weaviate_client():
+    client = weaviate.Client(url=  'https://superteams-810p8edk.weaviate.network')
+    return client
+
 
 def answer_query(message, chat_history):
     loaded_memory = RunnablePassthrough.assign(
@@ -190,7 +191,7 @@ def answer_query(message, chat_history):
 
 def clear_vectordb(chatbot, msg):
     client.schema.delete_all()
-    chatbot = ""
+    hatbot = ""
     msg = ""
     return chatbot, msg
 
@@ -200,11 +201,7 @@ hf_embeddings = embeddings_model()
 
 vectorstore = initialize_vectorstore()
 
-standalone_question, retrieved_documents, answer = return_chain_elements()
-
-textsplitter = textsplitter()
-
-conversational_memory = conversational_memory()
+textsplitter = text_splitter()
 
 
 with gr.Blocks() as demo:
