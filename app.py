@@ -188,6 +188,12 @@ def answer_query(message, chat_history):
 
     return "", chat_history
 
+def clear_vectordb(chatbot, msg):
+    client.schema.delete_all()
+    chatbot = ""
+    msg = ""
+    return chatbot, msg
+
 llm = load_llm()
 
 hf_embeddings = embeddings_model()
@@ -202,18 +208,17 @@ conversational_memory = conversational_memory()
 
 
 with gr.Blocks() as demo:
+    with gr.Row():
+        upload_files = gr.File(label="Upload pdf files only", file_count='multiple')
+        success_msg = gr.Text(value="")
 
-   with gr.Row():
-       upload_files = gr.File(label= "Upload pdf files only", file_count= 'multiple')
-       success_msg = gr.Text(value="")
+    chatbot = gr.Chatbot()
+    msg = gr.Textbox(label="Enter your query here")
+    clear = gr.Button("Clear VectorDB and Chat")
 
-   chatbot = gr.Chatbot()
-   msg = gr.Textbox(label= "Enter your query here")
-   clear = gr.ClearButton([msg, chatbot])
-
-
-   upload_files.upload(add_pdfs_to_vectorstore, upload_files, success_msg)
-   msg.submit(answer_query, [msg, chatbot], [msg, chatbot])
+    upload_files.upload(add_pdfs_to_vectorstore, upload_files, success_msg)
+    msg.submit(answer_query, [msg, chatbot], [msg, chatbot])
+    clear.click(clear_vectordb, [chatbot, msg], [chatbot, msg])
 
 demo.launch(server_name='0.0.0.0', share= True)
 
