@@ -84,75 +84,12 @@ def initialize_vectorstore():
 def text_splitter():
     # Simulate some document processing delay
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
+        chunk_size=512,
         chunk_overlap=20,
         length_function=len,
         is_separator_regex=False,
     )
     return text_splitter
-
-
-
-def return_chain_elements():
-
-    #template to get the Standalone question
-    _template = """Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
-
-        Chat History:
-        {chat_history}
-        Follow Up Input: {question}
-        Standalone question:
-    """
-    CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(_template)
-
-    #Function to create the context from retrieved documents
-    DEFAULT_DOCUMENT_PROMPT = PromptTemplate.from_template(template="{page_content}")
-    def _combine_documents(
-        docs, document_prompt=DEFAULT_DOCUMENT_PROMPT, document_separator="\n\n"
-    ):
-        doc_strings = [format_document(doc, document_prompt) for doc in docs]
-        return document_separator.join(doc_strings)
-
-    #Creating the template for the final answer
-    template = """Answer the question based only on the following context:
-        {context}
-
-        Question: {question}
-    """
-    ANSWER_PROMPT = ChatPromptTemplate.from_template(template)
-
-
-    # Now we calculate the standalone question
-    standalone_question = {
-        "standalone_question": {
-            "question": lambda x: x["question"],
-            "chat_history": lambda x: get_buffer_string(x["chat_history"]),
-        }
-        | CONDENSE_QUESTION_PROMPT
-        | llm
-        | StrOutputParser(),
-    }
-
-    # Now we retrieve the documents
-    retrieved_documents = {
-        "docs": itemgetter("standalone_question") | vectorstore.as_retriever(search_kwargs = {'k':10}),
-        "question": lambda x: x["standalone_question"],
-    }
-
-    # Now we construct the inputs for the final prompt
-    final_inputs = {
-        "context": lambda x: _combine_documents(x["docs"]),
-        "question": itemgetter("question"),
-    }
-
-    # And finally, we do the part that returns the answers
-    answer = {
-        "answer": final_inputs | ANSWER_PROMPT | llm,
-        "docs": itemgetter("docs"),
-    }
-
-    return standalone_question, retrieved_documents, answer
-
 
 def add_pdfs_to_vectorstore(files):
 
@@ -163,6 +100,9 @@ def add_pdfs_to_vectorstore(files):
             saved_files_count += 1
             loader_temp = PyPDFLoader(file_path)
             docs_temp = loader_temp.load_and_split(text_splitter=textsplitter)
+            for doc in docs_temp:
+                # Replace all occurrences of '\n' with a space ' '
+                doc.page_content = doc.page_content.replace('\n', ' ')
             vectorstore.add_documents(docs_temp)
 
         else:
@@ -176,28 +116,34 @@ def weaviate_client():
 
 
 def answer_query(message, chat_history):
-    loaded_memory = RunnablePassthrough.assign(
-        chat_history=RunnableLambda(conversational_memory.load_memory_variables) | itemgetter("history"),
-    )
-    chain = loaded_memory | standalone_question | retrieved_documents | answer
+    context_docs = vectorstore.similarity_search(message, k= 3)
+    context = ' '.join(doc.page_content for doc in context_docs)
 
-    inputs = {"question": message}
-    result = chain.invoke(inputs)
+    template = f"""Answer the question based only on the following context:
+        {context}
 
-    chat_history.append((message, result["answer"]))
-    conversational_memory.save_context(inputs, {"answer": result["answer"]})
+        Question: {message}
+    """
+
+    result = llm(template)
+
+    answer = result[0]["generated_text"].replace(template, '')
+
+    chat_history.append((message, answer))
 
     return "", chat_history
 
 def clear_vectordb(chatbot, msg):
     client.schema.delete_all()
-    hatbot = ""
+    chatbot = ""
     msg = ""
     return chatbot, msg
 
 llm = load_llm()
 
 hf_embeddings = embeddings_model()
+
+client = weaviate_client()
 
 vectorstore = initialize_vectorstore()
 
